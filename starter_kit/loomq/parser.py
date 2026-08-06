@@ -19,6 +19,7 @@ IR shape returned by parse_qasm():
     }
 """
 
+import re
 
 def _parse_reg(statement):
     """Parse one register declaration into a (name, size) pair.
@@ -43,6 +44,9 @@ def _parse_reg(statement):
         int(statement_N_string),
     )
 
+def _bracket_ints(s):
+    """'cx q[0], q[1]' -> [0, 1]"""
+    return [int(n) for n in re.findall(r'\[(\d+)\]', s)]
 
 def parse_qasm(qasm_str: str):
     """Parse an OpenQASM 2.0 program into the LoomQ IR (see module docstring).
@@ -74,4 +78,32 @@ def parse_qasm(qasm_str: str):
     cname, csize = _parse_reg(statements_without_header[1])
     result["creg"][cname] = csize
 
+    # configure ops
+
+    for statement in statements[2:]:
+        # Step 1: parse plain (no-parameter) gates: h, x, s, sdg,t, tdg, cx, swap, ccx
+        ops_statements = statement.strip()
+        #should i instead check the length of ops_statments, if it is smaller than 2, it means it is wrong. 
+        if ops_statements == "":
+            break
+        gate_name = ops_statements[0]
+        #should i check specifically h, x, s, sdg, t, tdg, cx, swap, ccx to be safe here? then else will run error
+        if gate_name != "measure":
+            gate_list = {"gate": gate_name, "qubits": _bracket_ints(statement), "params": [] }
+            result["ops"].append(gate_list)
+        else: 
+            left, right = statement.split("->")
+            left, right = left.strip(), right.strip()
+
+            if "[" in left:
+                # single-bit form: measure q[0] -> c[0]
+                q_index = _bracket_ints(left)[0]
+                c_index = _bracket_ints(right)[0]
+                result["ops"].append({"gate": "measure", "qubits": [q_index], "clbits": [c_index]})
+            else:
+                # whole-register form: measure q -> c
+                q_name = left.split()[-1]              # 'q'  (word after 'measure')
+                n = result["qreg"][q_name]             # how many qubits -> how many ops
+                for i in range(n):                     # <-- the expansion loop
+                    result["ops"].append({"gate": "measure", "qubits": [i], "clbits": [i]})
     return result
