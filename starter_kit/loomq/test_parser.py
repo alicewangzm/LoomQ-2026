@@ -14,7 +14,6 @@ organiser's stdlib-only baseline).
 # plain `from parser import ...` picks up the parser.py sitting next to it.
 from parser import parse_qasm, _parse_reg, _bracket_ints
 
-
 # --- tiny helpers so each check prints a readable PASS/FAIL line -------------
 
 _passed = 0
@@ -111,10 +110,11 @@ check_raises("unknown gate raises", lambda: parse_qasm(UNKNOWN_GATE), ValueError
 
 # --- edge cases --------------------------------------------------------------
 
+
 def _wrap(body, qsize=3):
     """Wrap a snippet of gate/measure lines in the standard QASM header."""
     return (
-        'OPENQASM 2.0;\n'
+        "OPENQASM 2.0;\n"
         'include "qelib1.inc";\n'
         f"qreg q[{qsize}];\n"
         f"creg c[{qsize}];\n"
@@ -155,7 +155,11 @@ check(
 # Whole-register measure must expand to N ops for N > 2 (GHZ3 uses 3).
 check(
     "whole-register measure expands to N=3",
-    [op for op in parse_qasm(_wrap("measure q -> c;"))["ops"] if op["gate"] == "measure"],
+    [
+        op
+        for op in parse_qasm(_wrap("measure q -> c;"))["ops"]
+        if op["gate"] == "measure"
+    ],
     [
         {"gate": "measure", "qubits": [0], "clbits": [0]},
         {"gate": "measure", "qubits": [1], "clbits": [1]},
@@ -163,6 +167,14 @@ check(
     ],
 )
 
+check(
+    "comment lines are ignored",
+    parse_qasm(_wrap("// prepare\nh q[0]; // trailing\nx q[1];"))["ops"],
+    [
+        {"gate": "h", "qubits": [0], "params": []},
+        {"gate": "x", "qubits": [1], "params": []},
+    ],
+)
 
 # --- summary -----------------------------------------------------------------
 

@@ -84,8 +84,11 @@ def parse_qasm(qasm_str: str):
         "creg": {},
         "ops": [],
     }
-    # Drop the two header statements (OPENQASM + include); statements are
-    # ';'-terminated, so splitting on ';' gives one entry per statement.
+    # Strip line comments ('//' to end of line) so they don't get glued onto
+    # the next statement when we split on ';'.
+    qasm_str = re.sub(r'//.*', '', qasm_str)
+    # Split into ';'-terminated statements; [2:] drops the OPENQASM + include
+    # header lines.
     statements = qasm_str.split(";")
     statements_without_header = statements[2:]
 
