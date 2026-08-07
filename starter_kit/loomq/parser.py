@@ -21,6 +21,9 @@ IR shape returned by parse_qasm():
 
 import re
 
+PLAIN_GATES = {"h", "x", "s", "sdg", "t", "tdg", "rz", "ry", "cx", "cu1", "swap", "ccx"}
+
+
 def _parse_reg(statement):
     """Parse one register declaration into a (name, size) pair.
 
@@ -44,9 +47,19 @@ def _parse_reg(statement):
         int(statement_N_string),
     )
 
+
 def _bracket_ints(s):
-    """'cx q[0], q[1]' -> [0, 1]"""
-    return [int(n) for n in re.findall(r'\[(\d+)\]', s)]
+    """Extract every bracketed integer, left to right.
+
+    >>> _bracket_ints("cx q[0], q[1]")
+    [0, 1]
+
+    Used to pull qubit / clbit indices out of a gate or measure statement.
+    Spacing between operands is irrelevant because the regex matches each
+    '[digits]' group independently (handles both 'q[0], q[1]' and 'q[0],q[1]').
+    """
+    return [int(n) for n in re.findall(r"\[(\d+)\]", s)]
+
 
 def parse_qasm(qasm_str: str):
     """Parse an OpenQASM 2.0 program into the LoomQ IR (see module docstring).
@@ -59,7 +72,12 @@ def parse_qasm(qasm_str: str):
     so the first two ';'-separated statements are dropped, leaving the qreg
     declaration, the creg declaration, then the gate / measure body.
 
-    TODO (L1.1): parse the gate and measure statements into result["ops"].
+    Each gate/measure statement becomes one or more entries in result["ops"].
+    A gate outside the whitelist raises ValueError, so malformed input fails
+    loudly instead of silently producing a wrong circuit.
+
+    TODO (L1.1): fill "params" for the parameterised gates rz/ry/cu1 (they are
+    currently emitted with an empty params list).
     """
     result = {
         "qreg": {},
@@ -78,20 +96,26 @@ def parse_qasm(qasm_str: str):
     cname, csize = _parse_reg(statements_without_header[1])
     result["creg"][cname] = csize
 
-    # configure ops
-
-    for statement in statements[2:]:
-        # Step 1: parse plain (no-parameter) gates: h, x, s, sdg,t, tdg, cx, swap, ccx
+    # Parse the circuit body into result["ops"]. statements[4:] skips the four
+    # statements already handled above (OPENQASM, include, qreg, creg).
+    for statement in statements[4:]:
         ops_statements = statement.strip()
-        #should i instead check the length of ops_statments, if it is smaller than 2, it means it is wrong. 
         if ops_statements == "":
-            break
-        gate_name = ops_statements[0]
-        #should i check specifically h, x, s, sdg, t, tdg, cx, swap, ccx to be safe here? then else will run error
-        if gate_name != "measure":
-            gate_list = {"gate": gate_name, "qubits": _bracket_ints(statement), "params": [] }
+            continue  # trailing empty piece left by the final ';'
+
+        # Dispatch on the leading token: a whitelisted gate, a measurement, or
+        # an unsupported gate (rejected loudly below).
+        gate_name = ops_statements.split()[0]
+        if gate_name in PLAIN_GATES:
+            # One op per gate line. params stays empty here; the angles for the
+            # parameterised gates rz/ry/cu1 are parsed in the next slice.
+            gate_list = {
+                "gate": gate_name,
+                "qubits": _bracket_ints(statement),
+                "params": [],
+            }
             result["ops"].append(gate_list)
-        else: 
+        elif gate_name == "measure":
             left, right = statement.split("->")
             left, right = left.strip(), right.strip()
 
@@ -99,11 +123,18 @@ def parse_qasm(qasm_str: str):
                 # single-bit form: measure q[0] -> c[0]
                 q_index = _bracket_ints(left)[0]
                 c_index = _bracket_ints(right)[0]
-                result["ops"].append({"gate": "measure", "qubits": [q_index], "clbits": [c_index]})
+                result["ops"].append(
+                    {"gate": "measure", "qubits": [q_index], "clbits": [c_index]}
+                )
             else:
                 # whole-register form: measure q -> c
-                q_name = left.split()[-1]              # 'q'  (word after 'measure')
-                n = result["qreg"][q_name]             # how many qubits -> how many ops
-                for i in range(n):                     # <-- the expansion loop
-                    result["ops"].append({"gate": "measure", "qubits": [i], "clbits": [i]})
+                q_name = left.split()[-1]  # 'q'  (word after 'measure')
+                n = result["qreg"][q_name]  # how many qubits -> how many ops
+                for i in range(n):  # <-- the expansion loop
+                    result["ops"].append(
+                        {"gate": "measure", "qubits": [i], "clbits": [i]}
+                    )
+        else:
+            raise ValueError(f"unsupported gate: {gate_name!r} in {ops_statements!r}")
+
     return result
