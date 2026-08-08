@@ -45,15 +45,21 @@ def _run_spinq(native_qasm, shots):
     """Execute SpinQ-native QASM on the basic (Taurus) local simulator."""
     from spinqit import BasicSimulatorConfig, get_basic_simulator, get_compiler
 
-    tmp = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".qasm", delete=False, encoding="utf-8"
-    )
+    # spinqit's QASM compiler reads from a file path. Write to a private temp
+    # directory with a fully-closed handle: NamedTemporaryFile can stay locked
+    # between close() and a second open on Windows, which breaks the compiler.
+    tmpdir = tempfile.mkdtemp()
+    path = os.path.join(tmpdir, "circuit.qasm")
     try:
-        tmp.write(native_qasm)
-        tmp.close()
-        compiled = get_compiler("qasm").compile(tmp.name, 0)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(native_qasm)
+        compiled = get_compiler("qasm").compile(path, 0)
     finally:
-        os.unlink(tmp.name)
+        try:
+            os.remove(path)
+            os.rmdir(tmpdir)
+        except OSError:
+            pass
 
     engine = get_basic_simulator()
     config = BasicSimulatorConfig()
