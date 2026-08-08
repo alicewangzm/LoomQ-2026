@@ -20,6 +20,7 @@ IR shape returned by parse_qasm():
 """
 
 import re
+import math
 
 PLAIN_GATES = {"h", "x", "s", "sdg", "t", "tdg", "rz", "ry", "cx", "cu1", "swap", "ccx"}
 
@@ -47,6 +48,26 @@ def _parse_reg(statement):
         int(statement_N_string),
     )
 
+def _parse_params(statement):
+    """Extract a gate's angle parameter(s) as floats.
+
+    >>> _parse_params("rz(pi/2) q[0]")
+    [1.5707963267948966]
+    >>> _parse_params("h q[0]")
+    []
+
+    Only rz/ry/cu1 carry a parameter, always a single angle inside '(...)'. The
+    angle may reference 'pi' or be plain arithmetic (e.g. '-pi/4', '1.5708'), so
+    it is evaluated with 'pi' bound to math.pi. eval runs with builtins removed
+    ({"__builtins__": {}}) so the expression can only do arithmetic, nothing else.
+    """
+    result = []
+    match = re.search(r"\(([^)]*)\)", statement)
+    if match:
+        expr = match.group(1)  # text between the parens, e.g. 'pi/2'
+        result.append(eval(expr, {"__builtins__": {}}, {"pi": math.pi}))
+    return result
+
 
 def _bracket_ints(s):
     """Extract every bracketed integer, left to right.
@@ -73,11 +94,9 @@ def parse_qasm(qasm_str: str):
     declaration, the creg declaration, then the gate / measure body.
 
     Each gate/measure statement becomes one or more entries in result["ops"].
+    Parameterised gates (rz/ry/cu1) carry their evaluated angle in "params".
     A gate outside the whitelist raises ValueError, so malformed input fails
     loudly instead of silently producing a wrong circuit.
-
-    TODO (L1.1): fill "params" for the parameterised gates rz/ry/cu1 (they are
-    currently emitted with an empty params list).
     """
     result = {
         "qreg": {},
@@ -108,14 +127,14 @@ def parse_qasm(qasm_str: str):
 
         # Dispatch on the leading token: a whitelisted gate, a measurement, or
         # an unsupported gate (rejected loudly below).
-        gate_name = ops_statements.split()[0]
+        gate_name = ops_statements.split()[0].split("(")[0]
         if gate_name in PLAIN_GATES:
-            # One op per gate line. params stays empty here; the angles for the
-            # parameterised gates rz/ry/cu1 are parsed in the next slice.
+            # One op per gate line. _parse_params pulls the angle for rz/ry/cu1
+            # and returns [] for gates that take no parameter.
             gate_list = {
                 "gate": gate_name,
                 "qubits": _bracket_ints(statement),
-                "params": [],
+                "params": _parse_params(statement),
             }
             result["ops"].append(gate_list)
         elif gate_name == "measure":

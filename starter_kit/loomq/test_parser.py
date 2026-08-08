@@ -13,7 +13,7 @@ organiser's stdlib-only baseline).
 # When run as a script, this file's own directory is first on sys.path, so a
 # plain `from parser import ...` picks up the parser.py sitting next to it.
 from parser import parse_qasm, _parse_reg, _bracket_ints
-
+import math
 # --- tiny helpers so each check prints a readable PASS/FAIL line -------------
 
 _passed = 0
@@ -175,6 +175,16 @@ check(
         {"gate": "x", "qubits": [1], "params": []},
     ],
 )
+
+check("parse rz param", parse_qasm(_wrap("rz(pi/2) q[0];"))["ops"],
+      [{"gate": "rz", "qubits": [0], "params": [math.pi/2]}])
+
+check("parse rz/cu1 params",
+      parse_qasm(_wrap("rz(pi/2) q[0];\ncu1(pi) q[0], q[1];"))["ops"],
+      [
+          {"gate": "rz",  "qubits": [0],    "params": [math.pi/2]},
+          {"gate": "cu1", "qubits": [0, 1], "params": [math.pi]},
+      ])
 
 # --- summary -----------------------------------------------------------------
 
