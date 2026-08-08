@@ -11,37 +11,10 @@ organiser's stdlib-only baseline).
 """
 
 # When run as a script, this file's own directory is first on sys.path, so a
-# plain `from parser import ...` picks up the parser.py sitting next to it.
+# plain `from parser import ...` picks up the modules sitting next to it.
 from parser import parse_qasm, _parse_reg, _bracket_ints
+from testkit import check, check_raises, summary
 import math
-# --- tiny helpers so each check prints a readable PASS/FAIL line -------------
-
-_passed = 0
-_failed = 0
-
-
-def check(label, got, want):
-    """Assert equality, printing a PASS/FAIL line either way."""
-    global _passed, _failed
-    if got == want:
-        _passed += 1
-        print(f"PASS  {label}")
-    else:
-        _failed += 1
-        print(f"FAIL  {label}\n        got : {got}\n        want: {want}")
-
-
-def check_raises(label, fn, exc):
-    """Assert that calling fn() raises the given exception type."""
-    global _passed, _failed
-    try:
-        fn()
-    except exc:
-        _passed += 1
-        print(f"PASS  {label}")
-    else:
-        _failed += 1
-        print(f"FAIL  {label}  (expected {exc.__name__} to be raised)")
 
 
 # --- helper-level tests ------------------------------------------------------
@@ -188,6 +161,4 @@ check("parse rz/cu1 params",
 
 # --- summary -----------------------------------------------------------------
 
-print(f"\n{_passed} passed, {_failed} failed")
-if _failed:
-    raise SystemExit(1)
+summary()

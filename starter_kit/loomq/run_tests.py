@@ -5,9 +5,10 @@ Run from anywhere:
 
     python starter_kit/loomq/run_tests.py
 
-Runs BOTH test styles and reports a combined result:
+Runs every test style and reports a combined result:
   1. the doctest examples embedded in parser.py's docstrings
   2. the assert-based checks in test_parser.py
+  3. the emitter round-trip checks in test_emitters.py
 
 Exit code 0 = everything green, 1 = something failed (so CI can gate on it).
 No third-party dependencies.
@@ -32,12 +33,13 @@ def main() -> int:
     print(f"doctests     : {result.attempted - result.failed}/{result.attempted} passed")
     failures += result.failed
 
-    # 2) the assert-based suite. Run it as a subprocess so its own PASS/FAIL
+    # 2) the assert-based suites. Run each as a subprocess so its own PASS/FAIL
     #    lines print normally and its exit code tells us if anything failed.
-    print("test_parser  :")
-    proc = subprocess.run([sys.executable, str(HERE / "test_parser.py")])
-    if proc.returncode != 0:
-        failures += 1
+    for name in ("test_parser.py", "test_emitters.py"):
+        print(f"{name:13s}:")
+        proc = subprocess.run([sys.executable, str(HERE / name)])
+        if proc.returncode != 0:
+            failures += 1
 
     print("\n" + ("ALL GREEN ✅" if failures == 0 else "FAILURES ABOVE ❌"))
     return 1 if failures else 0
