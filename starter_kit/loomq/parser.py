@@ -61,12 +61,12 @@ def _parse_params(statement):
     it is evaluated with 'pi' bound to math.pi. eval runs with builtins removed
     ({"__builtins__": {}}) so the expression can only do arithmetic, nothing else.
     """
-    result = []
+    params = []
     match = re.search(r"\(([^)]*)\)", statement)
     if match:
         expr = match.group(1)  # text between the parens, e.g. 'pi/2'
-        result.append(eval(expr, {"__builtins__": {}}, {"pi": math.pi}))
-    return result
+        params.append(eval(expr, {"__builtins__": {}}, {"pi": math.pi}))
+    return params
 
 
 def _bracket_ints(s):
@@ -93,12 +93,12 @@ def parse_qasm(qasm_str: str):
     so the first two ';'-separated statements are dropped, leaving the qreg
     declaration, the creg declaration, then the gate / measure body.
 
-    Each gate/measure statement becomes one or more entries in result["ops"].
+    Each gate/measure statement becomes one or more entries in ir["ops"].
     Parameterised gates (rz/ry/cu1) carry their evaluated angle in "params".
     A gate outside the whitelist raises ValueError, so malformed input fails
     loudly instead of silently producing a wrong circuit.
     """
-    result = {
+    ir = {
         "qreg": {},
         "creg": {},
         "ops": [],
@@ -113,12 +113,12 @@ def parse_qasm(qasm_str: str):
 
     # First two remaining statements are the quantum and classical registers.
     qname, qsize = _parse_reg(statements_without_header[0])
-    result["qreg"][qname] = qsize
+    ir["qreg"][qname] = qsize
 
     cname, csize = _parse_reg(statements_without_header[1])
-    result["creg"][cname] = csize
+    ir["creg"][cname] = csize
 
-    # Parse the circuit body into result["ops"]. statements[4:] skips the four
+    # Parse the circuit body into ir["ops"]. statements[4:] skips the four
     # statements already handled above (OPENQASM, include, qreg, creg).
     for statement in statements[4:]:
         ops_statements = statement.strip()
@@ -136,7 +136,7 @@ def parse_qasm(qasm_str: str):
                 "qubits": _bracket_ints(statement),
                 "params": _parse_params(statement),
             }
-            result["ops"].append(gate_list)
+            ir["ops"].append(gate_list)
         elif gate_name == "measure":
             left, right = statement.split("->")
             left, right = left.strip(), right.strip()
@@ -145,18 +145,19 @@ def parse_qasm(qasm_str: str):
                 # single-bit form: measure q[0] -> c[0]
                 q_index = _bracket_ints(left)[0]
                 c_index = _bracket_ints(right)[0]
-                result["ops"].append(
+                ir["ops"].append(
                     {"gate": "measure", "qubits": [q_index], "clbits": [c_index]}
                 )
             else:
                 # whole-register form: measure q -> c
                 q_name = left.split()[-1]  # 'q'  (word after 'measure')
-                n = result["qreg"][q_name]  # how many qubits -> how many ops
+                n = ir["qreg"][q_name]  # how many qubits -> how many ops
                 for i in range(n):  # <-- the expansion loop
-                    result["ops"].append(
+                    ir["ops"].append(
                         {"gate": "measure", "qubits": [i], "clbits": [i]}
+                        
                     )
         else:
             raise ValueError(f"unsupported gate: {gate_name!r} in {ops_statements!r}")
 
-    return result
+    return ir
