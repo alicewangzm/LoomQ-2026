@@ -17,6 +17,7 @@ _LOOMQ_DIR = os.path.join(os.path.dirname(__file__), "loomq")
 if _LOOMQ_DIR not in sys.path:
     sys.path.insert(0, _LOOMQ_DIR)
 
+from agent import agent_chat as _agent_chat  # noqa: E402
 from runtime import run as _run  # noqa: E402
 from runtime import transpile as _transpile  # noqa: E402
 
@@ -36,7 +37,7 @@ def run(qasm_str: str, target: str, shots: int) -> Dict[str, Any]:
 
 def agent_chat(prompt: str) -> str:
     """Optional L2 entry point using the documented LOOMQ_LLM_* environment."""
-    raise NotImplementedError("L2 is optional; implement agent_chat(prompt) to enter")
+    return _agent_chat(prompt)
 
 
 def compile_hybrid(hybrid_qasm_str: str) -> Tuple[List[str], str]:
