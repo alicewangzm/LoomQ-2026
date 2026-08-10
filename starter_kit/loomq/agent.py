@@ -8,6 +8,7 @@ selection against the official capabilities table.
 
 import json
 import os
+import re
 import sys
 
 # llm_client.py ships in the starter_kit dir (the parent of loomq/). Put that on
@@ -18,6 +19,10 @@ if _STARTER_KIT not in sys.path:
     sys.path.insert(0, _STARTER_KIT)
 
 from llm_client import chat_completion  # noqa: E402
+from parser import parse_qasm  # noqa: E402
+
+# Matches a fenced code block, optionally tagged ```qasm. Group 1 = the body.
+_QASM_BLOCK = re.compile(r"```(?:qasm)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 
 _CAPS_PATH = os.path.join(_STARTER_KIT, "backend_capabilities.json")
 
@@ -71,18 +76,83 @@ say so honestly rather than inventing an answer.
 """
 
 
-def agent_chat(prompt: str) -> str:
-    """Return the agent's natural-language response to a user request.
+def _extract_qasm(text):
+    """Pull the OpenQASM program out of a reply, or None if there isn't one.
 
-    Reads LOOMQ_LLM_* via llm_client (raises if unset), makes one chat-completion
-    call, and returns the assistant's message text.
+    Prefers a fenced ```qasm block; falls back to everything from the first
+    `OPENQASM` keyword (some models skip the fences).
+    """
+    match = _QASM_BLOCK.search(text)
+    if match:
+        return match.group(1).strip()
+    if "OPENQASM" in text:
+        return text[text.index("OPENQASM"):].strip()
+    return None
+
+
+def _validate_qasm(qasm):
+    """Return None if the circuit is structurally valid, else a short error.
+
+    Uses L1's parser (which catches syntax errors and non-whitelist gates) plus
+    a qubit/clbit index-range check. This is dependency-free, fast, and yields
+    clear messages the model can act on -- far better feedback than a raw
+    simulator stack trace. Any whitelist circuit that passes here also runs.
+    """
+    try:
+        ir = parse_qasm(qasm)
+    except Exception as exc:  # noqa: BLE001 - surface the parse failure verbatim
+        return str(exc)[:200]
+
+    n_qubits = sum(ir["qreg"].values())
+    n_clbits = sum(ir["creg"].values())
+    for op in ir["ops"]:
+        for i in op.get("qubits", []):
+            if i >= n_qubits:
+                return f"qubit index q[{i}] is out of range ({n_qubits} qubits declared)"
+        for j in op.get("clbits", []):
+            if j >= n_clbits:
+                return f"classical bit c[{j}] is out of range ({n_clbits} bits declared)"
+    return None
+
+
+def _chat(messages):
+    return chat_completion(messages)["choices"][0]["message"]["content"]
+
+
+def agent_chat(prompt: str, max_retries: int = 2) -> str:
+    """Return the agent's response, self-verifying any circuit it produces.
+
+    Reads LOOMQ_LLM_* via llm_client (raises if unset). For circuit tasks the
+    reply's QASM is run through L1; if it fails, the error is fed back and the
+    model retries (up to max_retries). Non-circuit replies (e.g. a backend
+    recommendation) are returned as-is.
     """
     messages = [
         {"role": "system", "content": _system_prompt()},
         {"role": "user", "content": prompt},
     ]
-    response = chat_completion(messages)
-    return response["choices"][0]["message"]["content"]
+    reply = _chat(messages)
+    for _attempt in range(max_retries):
+        qasm = _extract_qasm(reply)
+        if qasm is None:
+            return reply  # no circuit to verify (e.g. backend recommendation)
+        error = _validate_qasm(qasm)
+        if error is None:
+            return reply  # circuit runs -> accept it
+        # Feed the failure back and let the model correct itself.
+        messages.append({"role": "assistant", "content": reply})
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"That circuit failed to run: {error}\n"
+                    "Return a corrected OpenQASM 2.0 program in a ```qasm block, "
+                    "using only the allowed gates."
+                ),
+            }
+        )
+        reply = _chat(messages)
+    return reply  # out of retries -> best effort
 
 
 if __name__ == "__main__":

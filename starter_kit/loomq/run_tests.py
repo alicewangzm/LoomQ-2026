@@ -35,7 +35,7 @@ def main() -> int:
 
     # 2) the assert-based suites. Run each as a subprocess so its own PASS/FAIL
     #    lines print normally and its exit code tells us if anything failed.
-    for name in ("test_parser.py", "test_emitters.py"):
+    for name in ("test_parser.py", "test_emitters.py", "test_agent.py"):
         print(f"{name:13s}:")
         proc = subprocess.run([sys.executable, str(HERE / name)])
         if proc.returncode != 0:
