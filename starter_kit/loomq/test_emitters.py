@@ -10,7 +10,7 @@ same IR, since an emitter is the inverse of the parser. No third-party deps.
 """
 
 from parser import parse_qasm
-from emitters import emit_spinq
+from emitters import emit_originir, emit_spinq
 from testkit import check, summary
 
 
@@ -41,5 +41,14 @@ measure q -> c;
 
 check("bell round-trips through emit_spinq", roundtrips(BELL), True)
 check("mixed (param + ccx) round-trips through emit_spinq", roundtrips(MIXED), True)
+
+# OriginIR has no parser to round-trip through, so assert the emitted text
+# directly: QINIT/CREG registers, CNOT for cx, and MEASURE q[i], c[j].
+check(
+    "bell emits expected OriginIR",
+    emit_originir(parse_qasm(BELL)),
+    "QINIT 2\nCREG 2\nH q[0]\nCNOT q[0], q[1]\n"
+    "MEASURE q[0], c[0]\nMEASURE q[1], c[1]\n",
+)
 
 summary()

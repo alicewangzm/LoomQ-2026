@@ -15,7 +15,7 @@ import tempfile
 from datetime import datetime, timezone
 
 from parser import parse_qasm
-from emitters import emit_spinq
+from emitters import emit_originir, emit_spinq
 
 SUPPORTED_TARGETS = ("spinq", "originq", "braket")
 
@@ -25,6 +25,8 @@ def transpile(qasm_str, target):
     ir = parse_qasm(qasm_str)
     if target == "spinq":
         return emit_spinq(ir)
+    if target == "originq":
+        return emit_originir(ir)
     raise ValueError(f"unsupported target: {target!r} (supported: {SUPPORTED_TARGETS})")
 
 
@@ -70,12 +72,31 @@ def _run_spinq(native_qasm, shots):
     return counts, compiled.qnum
 
 
+def _run_originq(native_originir, shots):
+    """Execute OriginIR on the pyqpanda CPU simulator (CPUQVM)."""
+    import pyqpanda as pq
+
+    machine = pq.CPUQVM()
+    machine.init_qvm()
+    try:
+        prog, _qubits, cbits = pq.convert_originir_str_to_qprog(native_originir, machine)
+        result = machine.run_with_configuration(prog, cbits, shots)
+        # OriginQ already reports little-endian keys, so no reversal is needed.
+        counts = _normalize_counts(result, reverse_keys=False)
+        return counts, len(cbits)
+    finally:
+        machine.finalize()
+
+
 def run(qasm_str, target, shots):
     """Run a circuit and return the unified result schema (little-endian counts)."""
     native = transpile(qasm_str, target)
     if target == "spinq":
         counts, qubits = _run_spinq(native, shots)
         backend = "spinq_taurus_simulator"
+    elif target == "originq":
+        counts, qubits = _run_originq(native, shots)
+        backend = "originq_local_simulator"
     else:
         raise ValueError(f"unsupported target: {target!r} (supported: {SUPPORTED_TARGETS})")
 
