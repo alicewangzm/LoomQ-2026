@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LoomQ — your first quantum experiment</title>
+<style>
+  :root {
+    --bg: #f6f7fb; --card: #ffffff; --ink: #1a1d29; --muted: #5b6072;
+    --accent: #6a5cff; --accent-soft: #eceaff; --border: #e6e8f0;
+    --ok: #17b26a; --bar: #6a5cff; --code-bg: #f2f3f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1117; --card: #171a23; --ink: #eceef5; --muted: #9aa0b4;
+      --accent: #8b7dff; --accent-soft: #23203a; --border: #262a38;
+      --ok: #3ddc97; --bar: #8b7dff; --code-bg: #0c0e14;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+  header h1 { font-size: 1.7rem; margin: 0 0 6px; letter-spacing: -0.02em; }
+  header p { color: var(--muted); margin: 0 0 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px; margin: 14px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .chip {
+    border: 1px solid var(--border); background: var(--card); color: var(--ink);
+    border-radius: 999px; padding: 8px 14px; font-size: 0.9rem; cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .chip:hover { background: var(--accent-soft); border-color: var(--accent); }
+  .inputrow { display: flex; gap: 10px; }
+  textarea {
+    flex: 1; resize: vertical; min-height: 52px; padding: 12px 14px;
+    border: 1px solid var(--border); border-radius: 12px; background: var(--card);
+    color: var(--ink); font: inherit;
+  }
+  button.primary {
+    border: 0; background: var(--accent); color: #fff; font-weight: 600;
+    padding: 0 20px; border-radius: 12px; cursor: pointer; font-size: 0.95rem;
+  }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  button.run {
+    margin-top: 12px; border: 0; background: var(--ok); color: #fff;
+    font-weight: 600; padding: 10px 18px; border-radius: 10px; cursor: pointer;
+  }
+  .label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: .06em;
+           color: var(--muted); margin-bottom: 8px; }
+  pre {
+    background: var(--code-bg); border-radius: 10px; padding: 14px; overflow-x: auto;
+    margin: 0; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .reply { white-space: pre-wrap; }
+  .bars { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  .barrow { display: grid; grid-template-columns: 64px 1fr 64px; align-items: center; gap: 10px; }
+  .barrow code { font: 13px ui-monospace, monospace; color: var(--muted); }
+  .bartrack { background: var(--code-bg); border-radius: 6px; height: 22px; overflow: hidden; }
+  .barfill { background: var(--bar); height: 100%; border-radius: 6px; transition: width .5s ease; }
+  .barpct { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .err { color: #e5484d; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff;
+          border-top-color: transparent; border-radius: 50%; animation: s .7s linear infinite;
+          vertical-align: -2px; margin-right: 6px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🧵 LoomQ</h1>
+    <p>Run your first real quantum experiment — no code, no physics degree. Describe what you're curious about, and I'll build it, run it, and explain it.</p>
+  </header>
+
+  <div class="chips" id="chips">
+    <button class="chip" data-p="Show me two particles becoming linked, and explain entanglement simply.">🔗 See particles get linked</button>
+    <button class="chip" data-p="Make a truly random bit using quantum, and explain why it's random.">🎲 Flip a quantum coin</button>
+    <button class="chip" data-p="Put a particle in two states at once and show me what that means.">🌀 Two states at once</button>
+    <button class="chip" data-p="I've never coded and know nothing about quantum. Show me something amazing I can run.">✨ I'm totally new</button>
+  </div>
+
+  <div class="inputrow">
+    <textarea id="prompt" placeholder="e.g. I'm a biologist — can quantum help my research?"></textarea>
+    <button class="primary" id="ask">Ask</button>
+  </div>
+
+  <div id="reply-card" class="card hidden">
+    <div class="label">LoomQ says</div>
+    <div class="reply" id="reply"></div>
+  </div>
+
+  <div id="circuit-card" class="card hidden">
+    <div class="label">The circuit it wrote</div>
+    <pre id="circuit"></pre>
+    <button class="run" id="run">▶ Run it on a real simulator</button>
+  </div>
+
+  <div id="results-card" class="card hidden">
+    <div class="label">Results — <span id="backend" class="muted"></span></div>
+    <div class="bars" id="bars"></div>
+    <p class="muted" id="results-note" style="margin-bottom:0"></p>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let currentQasm = null;
+
+  async function post(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    return data;
+  }
+
+  async function ask(prompt) {
+    if (!prompt.trim()) return;
+    $("ask").disabled = true;
+    $("reply-card").classList.remove("hidden");
+    $("reply").innerHTML = '<span class="spin"></span>Thinking…';
+    $("circuit-card").classList.add("hidden");
+    $("results-card").classList.add("hidden");
+    try {
+      const { reply, qasm } = await post("/api/chat", { prompt });
+      $("reply").textContent = reply;
+      currentQasm = qasm;
+      if (qasm) {
+        $("circuit").textContent = qasm;
+        $("circuit-card").classList.remove("hidden");
+      }
+    } catch (e) {
+      $("reply").innerHTML = '<span class="err">⚠ ' + e.message + '</span>';
+    } finally {
+      $("ask").disabled = false;
+    }
+  }
+
+  async function runCircuit() {
+    if (!currentQasm) return;
+    $("run").disabled = true;
+    $("run").textContent = "Running…";
+    $("results-card").classList.remove("hidden");
+    $("bars").innerHTML = '<span class="spin"></span> Sampling the quantum state…';
+    $("results-note").textContent = "";
+    try {
+      const { counts, backend } = await post("/api/run", { qasm: currentQasm, shots: 1024 });
+      $("backend").textContent = backend;
+      renderBars(counts);
+      $("results-note").textContent =
+        "Each bar is how often the qubits landed in that combination across 1024 runs.";
+    } catch (e) {
+      $("bars").innerHTML = '<span class="err">⚠ ' + e.message + '</span>';
+    } finally {
+      $("run").disabled = false;
+      $("run").textContent = "▶ Run it again";
+    }
+  }
+
+  function renderBars(counts) {
+    const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
+    const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const max = rows.length ? rows[0][1] : 1;
+    $("bars").innerHTML = rows.map(([state, n]) => {
+      const pct = ((n / total) * 100).toFixed(1);
+      const w = ((n / max) * 100).toFixed(1);
+      return `<div class="barrow">
+        <code>|${state}⟩</code>
+        <div class="bartrack"><div class="barfill" style="width:${w}%"></div></div>
+        <span class="barpct">${pct}%</span>
+      </div>`;
+    }).join("");
+  }
+
+  $("ask").onclick = () => ask($("prompt").value);
+  $("prompt").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask($("prompt").value);
+  });
+  $("run").onclick = runCircuit;
+  $("chips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (chip) { $("prompt").value = chip.dataset.p; ask(chip.dataset.p); }
+  });
+</script>
+</body>
+</html>
