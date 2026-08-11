@@ -80,6 +80,9 @@
   .legend .sym { display:inline-grid; place-items:center; min-width:30px; height:24px; padding:0 6px;
                  border-radius:6px; background:var(--accent); color:#fff; font:700 12px system-ui; }
   .legend .sym.m { background:var(--ok); }
+  .hl { fill:var(--accent-soft); opacity:0; transition:x .35s ease, opacity .25s; }
+  .walk-caption { color:var(--muted); min-height:1.5em; margin-top:8px; }
+  .walk-caption strong { color:var(--ink); }
   details { margin-top:12px; } summary { cursor:pointer; color:var(--muted); font-size:.88rem; }
   /* single-qubit state dial */
   .viz { display:flex; flex-direction:column; align-items:center; gap:10px; margin:6px 0 18px; }
@@ -137,6 +140,8 @@
       <div class="label">The circuit, as a picture</div>
       <div class="diagram" id="diagram"></div>
       <ul class="legend" id="legend"></ul>
+      <button class="ghost" id="walk" style="margin-top:12px">▶ Walk me through it, step by step</button>
+      <div class="walk-caption" id="walk-caption"></div>
       <details><summary>See the raw code</summary>
         <pre class="md" style="margin-top:8px"><code id="code"></code></pre>
       </details>
@@ -167,6 +172,7 @@
   const $ = (id) => document.getElementById(id);
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   let currentQasm = null;
+  let diagram = null;  // {ops, colX} of the last drawn circuit, for the walkthrough
 
   // --- markdown (escape, then a safe subset); code blocks are shown as a diagram instead ---
   function esc(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -237,6 +243,7 @@
     const W = padL + (ops.length+0.5)*colW + 14, H = padT + nq*rowH + 6;
     const yq = i => padT + i*rowH + rowH/2;
     let s = `<svg viewBox="0 0 ${W} ${H}" style="min-width:${Math.min(W,760)}px" role="img" aria-label="quantum circuit diagram">`;
+    s += `<rect id="hl" class="hl" x="0" y="${padT-4}" width="0" height="${nq*rowH+8}" rx="8"/>`;
     for (let i=0;i<nq;i++){
       s += `<text x="10" y="${yq(i)+4}" class="qlabel">q${i}</text>`;
       s += `<line x1="${padL}" y1="${yq(i)}" x2="${W-8}" y2="${yq(i)}" class="wire"/>`;
@@ -264,6 +271,40 @@
         items.push(`<li>${sym}<span>${GATE_DESC[k] || op.gate}</span></li>`); } });
     $('legend').innerHTML = items.join('');
     $('code').textContent = qasm;
+    diagram = { ops, colX: ops.map((_, c) => padL + (c + 0.5) * colW) };
+    $('walk-caption').innerHTML = '';
+    $('walk').textContent = '▶ Walk me through it, step by step';
+  }
+
+  // Sweep a highlight across the diagram, explaining each gate in plain words.
+  function stepCaption(op){
+    const q = op.qubits, up = op.gate.toUpperCase();
+    if (op.gate === 'measure') return `<strong>Measure q${q[0]}.</strong> Read this qubit out as a definite 0 or 1.`;
+    if (op.gate === 'h') return `<strong>H on q${q[0]}.</strong> Put it into superposition — both 0 and 1 at once.`;
+    if (op.gate === 'x') return `<strong>X on q${q[0]}.</strong> Flip it: 0 becomes 1, or 1 becomes 0.`;
+    if (op.gate === 'cx') return `<strong>CNOT: q${q[0]} → q${q[1]}.</strong> Entangle them — q${q[1]} flips when q${q[0]} is 1, so their outcomes become linked.`;
+    if (op.gate === 'ccx') return `<strong>Toffoli.</strong> Flip q${q[q.length-1]} only when q${q[0]} and q${q[1]} are both 1.`;
+    if (op.gate === 'swap') return `<strong>Swap q${q[0]} ↔ q${q[1]}.</strong> Exchange the two qubits' states.`;
+    if (['rz','ry'].includes(op.gate)) return `<strong>${up} on q${q[0]}.</strong> Rotate the qubit by a set angle.`;
+    if (['s','t','sdg','tdg'].includes(op.gate)) return `<strong>${up} on q${q[0]}.</strong> Nudge the qubit's quantum phase.`;
+    if (op.gate === 'cu1') return `<strong>Controlled phase on q${q[0]}, q${q[1]}.</strong> A phase nudge on one qubit, conditioned on the other.`;
+    return `<strong>${up}.</strong>`;
+  }
+
+  async function walkthrough(){
+    if (!diagram) return;
+    const hl = document.getElementById('hl'), cap = $('walk-caption');
+    $('walk').disabled = true;
+    hl.style.opacity = 1; hl.setAttribute('width', 44);
+    for (let c = 0; c < diagram.ops.length; c++){
+      hl.setAttribute('x', diagram.colX[c] - 22);
+      cap.innerHTML = stepCaption(diagram.ops[c]);
+      await wait(1500);
+    }
+    hl.style.opacity = 0;
+    cap.innerHTML = '<strong>That’s the whole circuit.</strong> Now hit “Run it” below to actually execute it and see what the qubits do.';
+    $('walk').disabled = false;
+    $('walk').textContent = '↻ Walk through again';
   }
 
   // ---------- run + results ----------
@@ -332,6 +373,7 @@
   $('ask').onclick = () => ask($('prompt').value);
   $('clear').onclick = clearAll;
   $('run').onclick = runCircuit;
+  $('walk').onclick = walkthrough;
   $('prompt').addEventListener('keydown', e => { if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) ask($('prompt').value); });
   $('chips').addEventListener('click', e => { const c = e.target.closest('.chip'); if (c){ $('prompt').value = c.dataset.p; ask(c.dataset.p); } });
 </script>
