@@ -4,22 +4,28 @@
 A tiny stdlib web server (no third-party deps) that wraps the L2 agent and the
 L1 runtime so a non-expert can, in one page: describe what they want in plain
 words, see the circuit the agent writes, RUN it on a local simulator, and see
-the results as a chart.
+the results visualized.
 
 Run (with LOOMQ_LLM_* set, from the repo's .venv so the simulators are present):
 
-    python starter_kit/loomq/webapp.py
+    python starter_kit/loomq/webapp.py            # normal
+    LOOMQ_DEV=1 python starter_kit/loomq/webapp.py  # dev: hot-reload on change
 
 Then open http://localhost:8000
 
 Endpoints:
     GET  /            -> the single-page UI (index.html beside this file)
+    GET  /api/version -> {"v": <mtime>} for the dev auto-reload poller
     POST /api/chat    -> {"prompt": str}          -> {"reply": str, "qasm": str|null}
     POST /api/run     -> {"qasm": str, "shots"?}  -> {"counts": {...}, "backend": str}
 """
 
+import glob
 import json
 import os
+import subprocess
+import sys
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from agent import _extract_qasm, agent_chat
@@ -30,6 +36,27 @@ _INDEX = os.path.join(_HERE, "index.html")
 # originq's CPU simulator is little-endian and needs no bit-order handling, so it
 # is a clean default for the "run it" button.
 _DEFAULT_TARGET = "originq"
+_DEV = bool(os.environ.get("LOOMQ_DEV"))
+
+# Injected into the page in dev mode: polls /api/version and reloads on change.
+_RELOAD_SNIPPET = """
+<script>
+(async () => { let last = null;
+  for (;;) { try {
+    const v = (await (await fetch('/api/version')).json()).v;
+    if (last !== null && v !== last) location.reload(); last = v;
+  } catch (e) {} await new Promise(r => setTimeout(r, 1000)); }
+})();
+</script>
+"""
+
+
+def _watched_files():
+    return [_INDEX] + glob.glob(os.path.join(_HERE, "*.py"))
+
+
+def _version():
+    return max((os.path.getmtime(f) for f in _watched_files() if os.path.exists(f)), default=0)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -43,8 +70,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
-            with open(_INDEX, "rb") as fh:
-                self._reply(200, fh.read(), "text/html; charset=utf-8")
+            with open(_INDEX, "r", encoding="utf-8") as fh:
+                html = fh.read()
+            if _DEV:  # live-reload only in dev; the shipped page stays clean
+                html = html.replace("</body>", _RELOAD_SNIPPET + "</body>")
+            self._reply(200, html.encode("utf-8"), "text/html; charset=utf-8")
+        elif self.path == "/api/version":
+            self._reply(200, {"v": _version()})
         else:
             self._reply(404, {"error": "not found"})
 
@@ -58,9 +90,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             if self.path == "/api/chat":
-                # Warmer temperature for the human-facing UI (the graded
-                # agent_chat path keeps the policy's deterministic temp 0).
-                reply = agent_chat(str(payload.get("prompt", "")), temperature=0.6)
+                reply = agent_chat(str(payload.get("prompt", "")))
                 self._reply(200, {"reply": reply, "qasm": _extract_qasm(reply)})
             elif self.path == "/api/run":
                 result = run(
@@ -78,10 +108,49 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-def main():
+def _serve():
     port = int(os.environ.get("PORT", "8000"))
-    print(f"LoomQ web UI running at http://localhost:{port}  (Ctrl+C to stop)")
+    mode = "  [dev hot-reload]" if _DEV else ""
+    print(f"LoomQ web UI running at http://localhost:{port}{mode}  (Ctrl+C to stop)")
     HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+
+
+def _supervise():
+    """Dev supervisor: (re)spawn the server and restart it when a .py changes.
+
+    The browser reloads itself via /api/version, so editing index.html or any
+    Python module updates what you see without a manual restart.
+    """
+    py_snapshot = lambda: {f: os.path.getmtime(f) for f in glob.glob(os.path.join(_HERE, "*.py"))}
+    print("[dev] hot-reload on - watching for changes (Ctrl+C to stop)")
+    child_env = {**os.environ, "LOOMQ_CHILD": "1"}
+    while True:
+        snap = py_snapshot()
+        child = subprocess.Popen([sys.executable, __file__], env=child_env)
+        try:
+            while child.poll() is None:
+                time.sleep(0.8)
+                if py_snapshot() != snap:
+                    print("[dev] python change detected - restarting server")
+                    break
+        except KeyboardInterrupt:
+            child.terminate()
+            print("\nbye")
+            return
+        child.terminate()
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+
+
+def main():
+    # In dev, a supervisor process watches files and restarts the real server
+    # (the child, marked by LOOMQ_CHILD). Normal runs just serve.
+    if _DEV and not os.environ.get("LOOMQ_CHILD"):
+        _supervise()
+    else:
+        _serve()
 
 
 if __name__ == "__main__":

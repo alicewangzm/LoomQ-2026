@@ -145,28 +145,25 @@ def _validate_qasm(qasm):
     return None
 
 
-def _chat(messages, temperature=None):
-    extra = {} if temperature is None else {"temperature": temperature}
-    return chat_completion(messages, **extra)["choices"][0]["message"]["content"]
+def _chat(messages):
+    # temperature stays at the transport default (0) per the L2 policy, which
+    # requires deterministic grading. Applies to the web UI too.
+    return chat_completion(messages)["choices"][0]["message"]["content"]
 
 
-def agent_chat(prompt: str, max_retries: int = 2, temperature=None) -> str:
+def agent_chat(prompt: str, max_retries: int = 2) -> str:
     """Return the agent's response, self-verifying any circuit it produces.
 
     Reads LOOMQ_LLM_* via llm_client (raises if unset). For circuit tasks the
     reply's QASM is run through L1; if it fails, the error is fed back and the
     model retries (up to max_retries). Non-circuit replies (e.g. a backend
     recommendation) are returned as-is.
-
-    temperature defaults to None so the transport's temperature=0 is used -- the
-    L2 policy requires deterministic grading. The web UI passes a higher value
-    for warmer, less repetitive guidance.
     """
     messages = [
         {"role": "system", "content": _system_prompt()},
         {"role": "user", "content": prompt},
     ]
-    reply = _chat(messages, temperature)
+    reply = _chat(messages)
     for _attempt in range(max_retries):
         qasm = _extract_qasm(reply)
         if qasm is None:
@@ -186,7 +183,7 @@ def agent_chat(prompt: str, max_retries: int = 2, temperature=None) -> str:
                 ),
             }
         )
-        reply = _chat(messages, temperature)
+        reply = _chat(messages)
     return reply  # out of retries -> best effort
 
 
