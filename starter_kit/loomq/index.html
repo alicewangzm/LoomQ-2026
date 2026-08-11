@@ -173,6 +173,7 @@
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   let currentQasm = null;
   let diagram = null;  // {ops, colX} of the last drawn circuit, for the walkthrough
+  let walkStep = -1;   // current step in the self-paced walkthrough (-1 = not started)
 
   // --- markdown (escape, then a safe subset); code blocks are shown as a diagram instead ---
   function esc(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -272,6 +273,7 @@
     $('legend').innerHTML = items.join('');
     $('code').textContent = qasm;
     diagram = { ops, colX: ops.map((_, c) => padL + (c + 0.5) * colW) };
+    walkStep = -1;
     $('walk-caption').innerHTML = '';
     $('walk').textContent = '▶ Walk me through it, step by step';
   }
@@ -291,21 +293,24 @@
     return `<strong>${up}.</strong>`;
   }
 
-  async function walkthrough(){
-    if (!diagram) return;
+  function showStep(i){
     const hl = document.getElementById('hl'), cap = $('walk-caption');
-    $('walk').disabled = true;
-    hl.style.opacity = 1; hl.setAttribute('width', 44);
-    for (let c = 0; c < diagram.ops.length; c++){
-      hl.setAttribute('x', diagram.colX[c] - 22);
-      cap.innerHTML = stepCaption(diagram.ops[c]);
-      await wait(1500);
+    const n = diagram.ops.length;
+    if (i >= n){  // finished
+      hl.style.opacity = 0;
+      cap.innerHTML = '<strong>That’s the whole circuit.</strong> Now hit “Run it” below to actually execute it and see what the qubits do.';
+      $('walk').textContent = '↻ Walk through again';
+      walkStep = -1;
+      return;
     }
-    hl.style.opacity = 0;
-    cap.innerHTML = '<strong>That’s the whole circuit.</strong> Now hit “Run it” below to actually execute it and see what the qubits do.';
-    $('walk').disabled = false;
-    $('walk').textContent = '↻ Walk through again';
+    hl.style.opacity = 1; hl.setAttribute('width', 44); hl.setAttribute('x', diagram.colX[i] - 22);
+    cap.innerHTML = `<span class="muted">Step ${i + 1} of ${n}</span><br>${stepCaption(diagram.ops[i])}`;
+    $('walk').textContent = (i === n - 1) ? 'Finish ✓' : 'Next →';
+    walkStep = i;
   }
+
+  // Advance the self-paced walkthrough one gate per click.
+  function walkNext(){ if (diagram) showStep(walkStep + 1); }
 
   // ---------- run + results ----------
   async function runCircuit(){
@@ -373,7 +378,7 @@
   $('ask').onclick = () => ask($('prompt').value);
   $('clear').onclick = clearAll;
   $('run').onclick = runCircuit;
-  $('walk').onclick = walkthrough;
+  $('walk').onclick = walkNext;
   $('prompt').addEventListener('keydown', e => { if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) ask($('prompt').value); });
   $('chips').addEventListener('click', e => { const c = e.target.closest('.chip'); if (c){ $('prompt').value = c.dataset.p; ask(c.dataset.p); } });
 </script>
