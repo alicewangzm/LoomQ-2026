@@ -20,7 +20,7 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
          font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  .wrap { max-width:780px; margin:0 auto; padding:32px 20px 80px; }
+  .wrap { max-width:800px; margin:0 auto; padding:32px 20px 80px; }
   header h1 { font-size:1.7rem; margin:0 0 6px; letter-spacing:-.02em; }
   header p { color:var(--muted); margin:0 0 22px; }
   .card { background:var(--card); border:1px solid var(--border); border-radius:14px;
@@ -44,7 +44,7 @@
   button.ghost { border:1px solid var(--border); background:transparent; color:var(--muted);
                  padding:8px 14px; border-radius:12px; }
   button:disabled { opacity:.5; cursor:default; }
-  button.run { margin-top:14px; border:0; background:var(--ok); color:#fff; font-weight:600;
+  button.run { margin-top:16px; border:0; background:var(--ok); color:#fff; font-weight:600;
                padding:11px 18px; border-radius:10px; }
   .run-hint { color:var(--muted); font-size:.85rem; margin:8px 0 0; }
   /* rendered markdown */
@@ -55,13 +55,33 @@
              font:13px ui-monospace,Menlo,monospace; }
   .md pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
             padding:14px; overflow-x:auto; margin:.6em 0; }
-  .md pre code { background:none; padding:0; font-size:13px; line-height:1.5; }
+  .md pre code { background:none; padding:0; font-size:13px; }
   /* skeleton loader */
   .sk { height:12px; border-radius:6px; margin:9px 0;
         background:linear-gradient(90deg,var(--code-bg) 25%,var(--border) 37%,var(--code-bg) 63%);
         background-size:400% 100%; animation:sh 1.2s ease infinite; }
   @keyframes sh { 0%{background-position:100% 0} 100%{background-position:0 0} }
-  /* single-qubit state dial (shows the collapse process in 2D) */
+  /* circuit diagram */
+  .diagram-wrap { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
+  .diagram { width:100%; height:auto; overflow-x:auto; }
+  .wire { stroke:var(--border); stroke-width:2; }
+  .qlabel { fill:var(--muted); font:600 13px ui-monospace,monospace; }
+  .gbox { fill:var(--accent); }
+  .gtext { fill:#fff; font:700 12px system-ui; }
+  .ctrl { fill:var(--ink); }
+  .tgt { fill:var(--card); stroke:var(--accent); stroke-width:2; }
+  .tgtl, .link { stroke:var(--accent); stroke-width:2; }
+  .xg { fill:var(--accent); font:700 20px system-ui; }
+  .mbox { fill:var(--ok); }
+  .marc { fill:none; stroke:#fff; stroke-width:2; }
+  .mneedle { stroke:#fff; stroke-width:2; stroke-linecap:round; }
+  .legend { list-style:none; margin:12px 0 0; padding:0; display:flex; flex-direction:column; gap:7px; }
+  .legend li { color:var(--muted); font-size:.9rem; display:flex; gap:10px; align-items:baseline; }
+  .legend .sym { display:inline-grid; place-items:center; min-width:30px; height:24px; padding:0 6px;
+                 border-radius:6px; background:var(--accent); color:#fff; font:700 12px system-ui; }
+  .legend .sym.m { background:var(--ok); }
+  details { margin-top:12px; } summary { cursor:pointer; color:var(--muted); font-size:.88rem; }
+  /* single-qubit state dial */
   .viz { display:flex; flex-direction:column; align-items:center; gap:10px; margin:6px 0 18px; }
   .dial { width:170px; height:170px; }
   .dial .ring { fill:none; stroke:var(--border); stroke-width:2; }
@@ -89,7 +109,7 @@
 <div class="wrap">
   <header>
     <h1>🧵 LoomQ</h1>
-    <p>Run your first real quantum experiment — no code, no physics degree. Describe what you're curious about, and I'll build it, run it, and explain it.</p>
+    <p>Run your first real quantum experiment — no code, no physics degree. Describe what you're curious about, and I'll build it, draw it, run it, and explain it.</p>
   </header>
 
   <div class="label">Try one</div>
@@ -112,8 +132,18 @@
   <div id="reply-card" class="card hidden">
     <div class="label">LoomQ says</div>
     <div class="md" id="reply"></div>
+
+    <div id="diagram-wrap" class="diagram-wrap hidden">
+      <div class="label">The circuit, as a picture</div>
+      <div class="diagram" id="diagram"></div>
+      <ul class="legend" id="legend"></ul>
+      <details><summary>See the raw code</summary>
+        <pre class="md" style="margin-top:8px"><code id="code"></code></pre>
+      </details>
+    </div>
+
     <button class="run hidden" id="run">▶ Run it on a real simulator</button>
-    <p class="run-hint hidden" id="run-hint">This actually executes the circuit above on a quantum simulator 1024 times and tallies what the qubits measured — real quantum sampling, not a fixed answer.</p>
+    <p class="run-hint hidden" id="run-hint">This executes the circuit above on a quantum simulator 1024 times and tallies what the qubits measured — real quantum sampling, not a fixed answer.</p>
   </div>
 
   <div id="results-card" class="card hidden">
@@ -138,20 +168,14 @@
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   let currentQasm = null;
 
-  // --- tiny markdown -> HTML (escape first, then a safe subset) ---
+  // --- markdown (escape, then a safe subset); code blocks are shown as a diagram instead ---
   function esc(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function stripCode(s){ return s.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim(); }
   function md(src){
-    const blocks = [];
-    src = src.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-      blocks.push('<pre><code>' + esc(code.replace(/\n$/,'')) + '</code></pre>');
-      return '  ' + (blocks.length-1) + '  ';
-    });
     src = esc(src);
     const lines = src.split('\n'); let html = '', list = false;
     const flush = () => { if(list){ html += '</ul>'; list = false; } };
     for (let line of lines){
-      const ph = line.match(/^  (\d+)  $/);
-      if (ph){ flush(); html += blocks[+ph[1]]; continue; }
       if (/^\s*[-*]\s+/.test(line)){ if(!list){ html+='<ul>'; list=true; }
         html += '<li>' + inline(line.replace(/^\s*[-*]\s+/,'')) + '</li>'; continue; }
       if (/^#{2,4}\s+/.test(line)){ flush(); html += '<h4>' + inline(line.replace(/^#{2,4}\s+/,'')) + '</h4>'; continue; }
@@ -160,9 +184,7 @@
     }
     flush(); return html;
   }
-  function inline(s){
-    return s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>');
-  }
+  function inline(s){ return s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>'); }
 
   async function post(url, body){
     const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
@@ -177,17 +199,74 @@
     $('ask').disabled = true;
     $('reply-card').classList.remove('hidden');
     $('reply').innerHTML = skeleton();
+    $('diagram-wrap').classList.add('hidden');
     $('run').classList.add('hidden'); $('run-hint').classList.add('hidden');
     $('results-card').classList.add('hidden');
     try {
-      const { reply, qasm } = await post('/api/chat', { prompt });
-      $('reply').innerHTML = md(reply);
+      const { reply, qasm, circuit } = await post('/api/chat', { prompt });
+      $('reply').innerHTML = md(stripCode(reply));
       currentQasm = qasm;
+      if (circuit && circuit.ops.length){ drawDiagram(circuit, qasm); $('diagram-wrap').classList.remove('hidden'); }
       if (qasm){ $('run').classList.remove('hidden'); $('run-hint').classList.remove('hidden'); }
     } catch(e){ $('reply').innerHTML = '<p class="err">⚠ '+e.message+'</p>'; }
     finally { $('ask').disabled = false; }
   }
 
+  // ---------- circuit diagram (SVG) ----------
+  const GATE_DESC = {
+    h:'Hadamard — creates superposition (both 0 and 1 at once)',
+    x:'NOT — flips the qubit (0 ↔ 1)',
+    cx:'CNOT — entangles: flips the target when the control is 1',
+    ccx:'Toffoli — flips the target when both controls are 1',
+    swap:'Swap — exchanges two qubits',
+    phase:'Phase (S / T) — nudges the quantum phase',
+    rot:'Rotation — rotates the qubit by an angle',
+    cu1:'Controlled phase — a phase nudge conditioned on another qubit',
+    measure:'Measure — reads the qubit out as a 0 or 1',
+  };
+  const legendKey = (g) => (['s','t','sdg','tdg'].includes(g) ? 'phase' : ['rz','ry'].includes(g) ? 'rot' : g);
+  const dot = (x,y)=>`<circle cx="${x}" cy="${y}" r="5" class="ctrl"/>`;
+  const xg  = (x,y)=>`<text x="${x}" y="${y+7}" class="xg" text-anchor="middle">×</text>`;
+  const target = (x,y)=>`<circle cx="${x}" cy="${y}" r="11" class="tgt"/><line x1="${x-11}" y1="${y}" x2="${x+11}" y2="${y}" class="tgtl"/><line x1="${x}" y1="${y-11}" x2="${x}" y2="${y+11}" class="tgtl"/>`;
+  function gbox(x,y,label){ const w=Math.max(30,label.length*9); return `<rect x="${x-w/2}" y="${y-15}" width="${w}" height="30" rx="7" class="gbox"/><text x="${x}" y="${y+4}" class="gtext" text-anchor="middle">${label}</text>`; }
+  const meter=(x,y)=>`<rect x="${x-15}" y="${y-15}" width="30" height="30" rx="7" class="mbox"/><path d="M ${x-8} ${y+4} A 8 8 0 0 1 ${x+8} ${y+4}" class="marc"/><line x1="${x}" y1="${y+4}" x2="${x+6}" y2="${y-5}" class="mneedle"/>`;
+
+  function drawDiagram(circ, qasm){
+    const nq = circ.qubits, ops = circ.ops;
+    const rowH=48, colW=48, padL=52, padT=16;
+    const W = padL + (ops.length+0.5)*colW + 14, H = padT + nq*rowH + 6;
+    const yq = i => padT + i*rowH + rowH/2;
+    let s = `<svg viewBox="0 0 ${W} ${H}" style="min-width:${Math.min(W,760)}px" role="img" aria-label="quantum circuit diagram">`;
+    for (let i=0;i<nq;i++){
+      s += `<text x="10" y="${yq(i)+4}" class="qlabel">q${i}</text>`;
+      s += `<line x1="${padL}" y1="${yq(i)}" x2="${W-8}" y2="${yq(i)}" class="wire"/>`;
+    }
+    ops.forEach((op,c) => {
+      const x = padL + (c+0.5)*colW, qs = op.qubits;
+      if (op.gate === 'measure'){ s += meter(x, yq(qs[0])); return; }
+      if (qs.length >= 2){
+        const ys = qs.map(yq); s += `<line x1="${x}" y1="${Math.min(...ys)}" x2="${x}" y2="${Math.max(...ys)}" class="link"/>`;
+        if (op.gate === 'swap'){ qs.forEach(q => s += xg(x, yq(q))); }
+        else { qs.slice(0,-1).forEach(q => s += dot(x, yq(q))); s += target(x, yq(qs[qs.length-1])); }
+      } else {
+        s += gbox(x, yq(qs[0]), op.gate.toUpperCase());
+      }
+    });
+    s += '</svg>';
+    $('diagram').innerHTML = s;
+    // legend: one line per distinct concept present
+    const seen = [], items = [];
+    ops.forEach(op => { const k = legendKey(op.gate);
+      if (!seen.includes(k)){ seen.push(k);
+        const sym = op.gate === 'measure' ? '<span class="sym m">📏</span>'
+                  : ['cx','ccx'].includes(op.gate) ? '<span class="sym">●⊕</span>'
+                  : `<span class="sym">${op.gate.toUpperCase()}</span>`;
+        items.push(`<li>${sym}<span>${GATE_DESC[k] || op.gate}</span></li>`); } });
+    $('legend').innerHTML = items.join('');
+    $('code').textContent = qasm;
+  }
+
+  // ---------- run + results ----------
   async function runCircuit(){
     if (!currentQasm) return;
     $('run').disabled = true; $('run').textContent = 'Running…';
@@ -206,20 +285,17 @@
     finally { $('run').disabled = false; $('run').textContent = '▶ Run it again'; }
   }
 
-  // 2D process animation: 0 -> superposition -> collapse, for a single qubit.
   const setNeedle = (deg) => { $('needle').style.transform = `rotate(${deg}deg)`; };
   async function playDial(counts){
     const cap = $('viz-caption');
-    setNeedle(0);
-    cap.innerHTML = '<strong>Step 1.</strong> The qubit starts as <strong>0</strong> — the needle points up.';
+    setNeedle(0); cap.innerHTML = '<strong>Step 1.</strong> The qubit starts as <strong>0</strong> — the needle points up.';
     await wait(850);
-    setNeedle(90);
-    cap.innerHTML = '<strong>Step 2.</strong> The <code>h</code> gate turns it sideways: now it is <strong>both 0 and 1 at once</strong> (superposition).';
+    setNeedle(90); cap.innerHTML = '<strong>Step 2.</strong> The <code>h</code> gate turns it sideways: now it is <strong>both 0 and 1 at once</strong> (superposition).';
     await wait(1150);
     cap.innerHTML = '<strong>Step 3.</strong> Measuring forces a choice — watch it collapse, over and over…';
-    for (let i = 0; i < 14; i++){ setNeedle(Math.random() < 0.5 ? 0 : 180); await wait(85); }
-    const zero = counts['0'] || 0, one = counts['1'] || 0;
-    setNeedle(zero >= one ? 0 : 180);
+    for (let i=0;i<14;i++){ setNeedle(Math.random()<0.5?0:180); await wait(85); }
+    const zero = counts['0']||0, one = counts['1']||0;
+    setNeedle(zero>=one?0:180);
     cap.innerHTML = `<strong>Done.</strong> Across 1024 measurements it landed <strong>0</strong> ${zero} times and <strong>1</strong> ${one} times — about 50/50. That randomness is genuinely quantum.`;
   }
 

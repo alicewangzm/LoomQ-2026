@@ -29,6 +29,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from agent import _extract_qasm, agent_chat
+from parser import parse_qasm
 from runtime import run
 
 _HERE = os.path.dirname(__file__)
@@ -49,6 +50,17 @@ _RELOAD_SNIPPET = """
 })();
 </script>
 """
+
+
+def _circuit(qasm):
+    """Parse QASM into a simple {qubits, ops} shape for drawing a diagram."""
+    if not qasm:
+        return None
+    try:
+        ir = parse_qasm(qasm)
+    except Exception:  # noqa: BLE001 - a diagram is best-effort, never fatal
+        return None
+    return {"qubits": sum(ir["qreg"].values()), "ops": ir["ops"]}
 
 
 def _watched_files():
@@ -91,7 +103,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/chat":
                 reply = agent_chat(str(payload.get("prompt", "")))
-                self._reply(200, {"reply": reply, "qasm": _extract_qasm(reply)})
+                qasm = _extract_qasm(reply)
+                self._reply(200, {"reply": reply, "qasm": qasm, "circuit": _circuit(qasm)})
             elif self.path == "/api/run":
                 result = run(
                     str(payload.get("qasm", "")),
