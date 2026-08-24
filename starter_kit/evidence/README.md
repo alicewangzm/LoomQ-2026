@@ -1,99 +1,92 @@
 # LoomQ 人工评分证据
 
-这份文件是人工评分材料的统一入口。请直接编辑它，只填写要申报的项目。截图、原始结果或图表统一放在 `starter_kit/evidence/files/`，也可以引用 `starter_kit/` 中已有的代码和文档。
-
-证据包是可选的。没有申报某项人工分时，留空即可，不影响自动评分。
+这份文件是人工评分材料的统一入口。截图、原始结果或图表统一放在 `starter_kit/evidence/files/`，也引用 `starter_kit/` 中已有的代码和文档。
 
 ## 提交前填写
 
-把要申报项目的方框改成 `[x]`，并填写对应内容：
-
 - [ ] L1 真机
-- [ ] L2 交互体验
-- [ ] 工程与产品化
+- [x] L2 交互体验
+- [x] 工程与产品化
 - [ ] 自定义量子 RISC-V Bonus
-- [ ] 新手引导与视觉叙事 Bonus
+- [x] 新手引导与视觉叙事 Bonus
 
 ## L1 真机
 
-每个有效真机平台计 5 分，最多两个平台。模拟器不计真机分。每个平台复制并填写一次下面的信息：
-
-```text
-平台名称：[填写]
-平台 job ID：[填写]
-运行时间：[填写，带时区]
-shots：[填写]
-实际执行的 QASM：[填写仓库内路径]
-平台返回的原始结果：[填写仓库内路径]
-任务页截图：[选填，填写仓库内路径]
-```
-
-建议把文件放进 `evidence/files/`，比如：
-
-```text
-evidence/files/spinq-circuit.qasm
-evidence/files/spinq-result.json
-evidence/files/spinq-screenshot.png
-```
-
-工作人员会核对 job ID、运行时间、电路、shots 和原始结果。截图只能辅助说明，不能代替 job ID 和原始结果。
+未申报（仅在模拟器上验证：SpinQ、OriginQ）。
 
 ## L2 交互体验
 
-请填写：
-
 ```text
-启动界面或 CLI 的命令：[填写]
-测试入口或页面地址：[填写，没有则写“无”]
+启动界面或 CLI 的命令：
+  # 网页版（推荐现场体验）
+  .venv/Scripts/python starter_kit/loomq/webapp.py
+  # 命令行冒烟测试（依次跑三种任务）
+  .venv/Scripts/python starter_kit/loomq/agent.py
+  需先设置 LOOMQ_LLM_BASE_URL / LOOMQ_LLM_API_KEY / LOOMQ_LLM_MODEL
+
+测试入口或页面地址：http://localhost:8000
+
 适合现场体验的 3 个用户任务：
-1. [填写]
-2. [填写]
-3. [填写]
-截图或演示视频：[选填，填写仓库内路径或稳定只读链接]
+1. 生成（GENERATE）：Make a 3-qubit GHZ (maximally entangled) state and measure everything.
+   → 代理返回完整合法的 OpenQASM，网页画出电路并逐门讲解。
+2. 修复（FIX）：I want a Bell state but this errors, please fix it: H q[0]; CX q[0] q[1]
+   → 代理指出缺少分号/寄存器声明并返回可运行版本；自校验环回验证后才回复。
+3. 推荐（RECOMMEND）：I need to run a 15-qubit circuit with zero queue wait. Which backend?
+   → 代理用大白话给出建议，并给出确切的规范后端 id（取自 backend_capabilities.json）。
+
+截图或演示视频：无（评测在组委会统一模型环境中现场运行以上任务即可复现）
 ```
 
-工作人员会在组委会统一模型环境中运行最终代码，测试新手是否看得懂、出错后能否得到有效帮助、结果是否清楚，以及多轮回答是否一致。选手自己的对话截图只用于说明产品流程，不直接证明得分。
+代理实现见 `starter_kit/loomq/agent.py`：单一系统提示覆盖三类任务，并带有
+**自校验环路**——用 L1 的 `parse_qasm` 解析自己的输出、越界检查，失败则把错误
+回喂给模型重试（`max_retries`）。温度固定为 0，符合 L2 一致性要求。
 
 ## 工程与产品化
 
-已有内容可以直接引用主 README 或其他项目文档，不必复制到本目录。
-
 ```text
-干净环境中的构建和启动命令：[填写命令或文档路径]
-架构说明：[填写文档路径，或用几句话说明主要模块]
-目标用户和使用场景：[填写]
-完整使用流程：[填写文档、截图或演示路径]
-```
+干净环境中的构建和启动命令：见 starter_kit/loomq/README.md 的 “Run it (clean environment)”
+  python -m venv .venv
+  .venv/Scripts/python -m pip install -r starter_kit/requirements.txt
+  .venv/Scripts/python starter_kit/evaluator.py --level l1 --target spinq,originq
+  .venv/Scripts/python starter_kit/loomq/run_tests.py   # 快速自测，无需 API Key
 
-工作人员会按最终 commit 实际构建和启动，并检查文档与代码是否一致、产品是否真的降低了量子计算的使用门槛。
+架构说明：starter_kit/loomq/README.md（模块表 + 数据流图）。
+  核心是“窄腰” IR：所有后端与代理自校验都经过同一个 parse_qasm → IR。
+
+目标用户和使用场景：零量子基础的学生 / 跨领域研究者 / 产品同学。
+  用自然语言描述想做的实验 → 得到可运行的电路 → 看图看讲解 → 运行 → 读懂结果。
+
+完整使用流程：starter_kit/loomq/README.md 的 “Who this is for” 一节，
+  以及网页版从输入到“逐步讲解 + 结果解读”的端到端体验。
+```
 
 ## 自定义量子 RISC-V Bonus
 
-以下三项必须齐全且测试通过，才获得 8 分：
-
-```text
-指令编码规格：[填写文档路径]
-模拟器扩展实现：[填写代码路径]
-端到端测试命令：[填写命令或文档路径]
-```
+未申报（`submission.yaml` 中 `l3: false`）。
 
 ## 新手引导与视觉叙事 Bonus
 
-请填写已有材料的路径，不要求为评分另写一套文档：
+以下四项均由自建的零依赖网页 UI 提供（`starter_kit/loomq/webapp.py` +
+`starter_kit/loomq/index.html`，纯标准库 + 原生 JS，无 CDN、无外部依赖）：
 
 ```text
-零基础首次运行指南：[填写]
-量子概念解释：[填写]
-结果可视化：[填写]
-错误恢复或无障碍引导：[填写]
+零基础首次运行指南：starter_kit/loomq/README.md（一条命令装好、一条命令启动；
+  网页打开即用，输入框有示例提示，无需先懂 QASM）。
+量子概念解释：网页的“图例（legend）”与逐步讲解用大白话解释每个门，
+  例如 Hadamard → “creates superposition (both 0 and 1 at once)”
+  （见 index.html 的 legend / stepCaption / 单量子比特状态盘 state dial）。
+结果可视化：SVG 电路图 + 动画结果条 + 单量子比特“状态盘”坍缩动画
+  （0 → 叠加 → 测量），把测量分布转成一眼看懂的图形。
+错误恢复或无障碍引导：代理自校验环路在出错时自动修复并重试；网页对错误给出
+  可读提示（而非堆栈）；SVG 带 role/aria-label，图例逐条对应电路概念，
+  提供自定进度的“▶ Walk me through it, step by step”分步引导。
 ```
 
-以上四项各 1 分。普通项目 README 完整不代表自动获得 Bonus。
+以上四项各 1 分，均指向已实现且随最终 commit 归档的功能，未为评分另写文档。
 
 ## 提交规则
 
-- 所有材料都要在截止前进入最终提交的 commit，工作人员不接受截止后补交。
-- 外部视频可以用稳定只读链接，源码、原始结果和复现命令应保存在仓库中。
-- 整个 fork commit 的归档包不得超过 100 MiB。
-- 不要提交 API Key、Token、Cookie、个人身份信息或平台账户隐私。
-- 如申报 L1 真机分，在最终提交 Issue 的 `Hardware evidence` 中填写 `starter_kit/evidence/README.md`。
+- 所有材料都在截止前进入最终提交的 commit。
+- 未提交 API Key、Token、Cookie 或个人隐私。
+- 未申报 L1 真机，无需在提交 Issue 的 `Hardware evidence` 中填写本文件；
+  如需人工复核 L2/工程/新手引导，请指向 `starter_kit/evidence/README.md`。
